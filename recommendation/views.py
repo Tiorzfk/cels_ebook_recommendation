@@ -7,26 +7,33 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import linear_kernel
 import json
 from django.http import JsonResponse
+from .forms import UploadFileForm
+from django.views.decorators.csrf import csrf_exempt
 
 # Create your views here.
 def index(request):
-    data = pd.read_csv("static/dataset.csv", delimiter=";")
+    data = pd.read_csv("static/dataset.csv", delimiter=",")
 
     content_df = data[['id', 'judul', 'deskripsi']]
     content_df['Content'] = content_df.apply(lambda row: ' '.join(row.dropna().astype(str)), axis=1)
-
     user_id = int(request.GET.get('user_id'))
     book_id = int(request.GET.get('book_id'))
     top_n = int(request.GET.get('n', 5))
 
-    recommendations = get_hybrid_recommendations(user_id, book_id, top_n, content_df, data)
-    result = []
-    for i, recommendation in enumerate(recommendations):
-        result.append(int(recommendation))
-    return JsonResponse({
-         "status": 200,
-         "result": result
-    },safe=False)
+    try:
+        recommendations = get_hybrid_recommendations(user_id, book_id, top_n, content_df, data)
+        result = []
+        for i, recommendation in enumerate(recommendations):
+            result.append(int(recommendation))
+        return JsonResponse({
+            "status": 200,
+            "result": result
+        },safe=False)
+    except:
+        return JsonResponse({
+            "status": 500,
+            "result": []
+        },safe=False)
 
 def get_content_based_recommendations(book_id, top_n, content_df):
         # Use TF-IDF vectorizer to convert content into a matrix of TF-IDF features
@@ -65,3 +72,26 @@ def get_hybrid_recommendations(user_id, book_id, top_n, content_df, data):
     # print("RESULT HYBRID :", hybrid_recommendations)
     
     return hybrid_recommendations[:top_n]
+
+@csrf_exempt
+def upload_file(request):
+    if request.method == "POST":
+        form = UploadFileForm(request.POST, request.FILES)
+        if form.is_valid():
+            handle_uploaded_file(request.FILES["file"])
+            return JsonResponse({
+                "status": 200,
+                "result": []
+            },safe=False)
+    else:
+        form = UploadFileForm()
+
+    return JsonResponse({
+        "status": 400,
+        "result": []
+    },safe=False)
+
+def handle_uploaded_file(f):
+    with open("static/dataset.csv", "wb+") as destination:
+        for chunk in f.chunks():
+            destination.write(chunk)
