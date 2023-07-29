@@ -9,10 +9,13 @@ import json
 from django.http import JsonResponse
 from .forms import UploadFileForm
 from django.views.decorators.csrf import csrf_exempt
+from Sastrawi.Stemmer.StemmerFactory import StemmerFactory
+from Sastrawi.StopWordRemover.StopWordRemoverFactory import StopWordRemoverFactory
+import re
 
 # Create your views here.
 def index(request):
-    data = pd.read_csv("static/dataset.csv", delimiter=",")
+    data = pd.read_csv("static/export_dataset.csv", delimiter=";")
 
     content_df = data[['id', 'judul', 'deskripsi']]
     content_df['Content'] = content_df.apply(lambda row: ' '.join(row.dropna().astype(str)), axis=1)
@@ -20,22 +23,64 @@ def index(request):
     book_id = int(request.GET.get('book_id'))
     top_n = int(request.GET.get('n', 5))
 
-    try:
-        recommendations = get_hybrid_recommendations(user_id, book_id, top_n, content_df, data)
-        result = []
-        for i, recommendation in enumerate(recommendations):
-            result.append(int(recommendation))
-        return JsonResponse({
-            "status": 200,
-            "result": result
-        },safe=False)
-    except:
-        return JsonResponse({
-            "status": 500,
-            "result": []
-        },safe=False)
+    # try:
+    recommendations = get_hybrid_recommendations(user_id, book_id, top_n, content_df, data)
+    result = []
+    for i, recommendation in enumerate(recommendations):
+        result.append(int(recommendation))
+    return JsonResponse({
+        "status": 200,
+        "result": result
+    },safe=False)
+    # except:
+    #     return JsonResponse({
+    #         "status": 500,
+    #         "result": []
+    #     },safe=False)
+    
+def stemming(content):
+    # create stemmer
+    factory = StemmerFactory()
+    stemmer = factory.create_stemmer()
+    # stemming process
+    sentence = content
+    output   = stemmer.stem(sentence) 
+
+    print("STEMMING ", output)  
+
+    return output
+
+def _normalize_whitespace(text):
+    corrected = str(text)
+    corrected = re.sub(r"//t",r"\t", corrected)
+    corrected = re.sub(r"( )\1+",r"\1", corrected)
+    corrected = re.sub(r"(\n)\1+",r"\1", corrected)
+    corrected = re.sub(r"(\r)\1+",r"\1", corrected)
+    corrected = re.sub(r"(\t)\1+",r"\1", corrected)
+    return corrected.strip(" ")
 
 def get_content_based_recommendations(book_id, top_n, content_df):
+        # Preprocessing Data pada kolom 'deskripsi'
+        # Mengisi nilai kosong (NaN) dalam kolom 'deskripsi' dengan string kosong ''
+        content_df['Content'] = content_df['Content'].fillna('')
+
+        # Mengubah teks deskripsi menjadi lowercase (huruf kecil) untuk konsistensi dalam perhitungan TF-IDF
+        content_df['Content'] = content_df['Content'].apply(lambda x: _normalize_whitespace(x.lower()))
+
+        # Menghapus karakter khusus dan angka menggunakan regular expression pada kolom 'deskripsi'
+        # Punctuation Removing
+        content_df['Content'] = content_df['Content'].apply(lambda x: re.sub(r'[^\w\s]', '', x))
+
+        # print("BEFORE STEMMING = ", content_df['Content'])
+        # # Stemming
+        # content_df['Content'] = content_df['Content'].apply(lambda x: stemming(x))
+        # print("AFTER STEMMING = ", content_df['Content'])
+
+        # STOPWORD
+        factory = StopWordRemoverFactory()
+        stopword = factory.create_stop_word_remover()
+        content_df['Content'] = content_df['Content'].apply(lambda x: stopword.remove(x))
+
         # Use TF-IDF vectorizer to convert content into a matrix of TF-IDF features
         tfidf_vectorizer = TfidfVectorizer()
         content_matrix = tfidf_vectorizer.fit_transform(content_df['Content'])
